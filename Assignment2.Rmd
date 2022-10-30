@@ -1,0 +1,510 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.14.1
+  kernelspec:
+    display_name: R
+    language: R
+    name: ir
+---
+
+Github repository location for this article：
+
+
+## Part I: Data Processing and Analysis
+### 1. Read the study raw data and clean
+
+
+```{r}
+# install packages
+library(pacman)
+p_load(tidyverse, flextable, metafor, janitor, ggpmisc, patchwork)
+# Install the orchaRd package 
+## devtools::install_github("daniel1noble/orchaRd", force = TRUE)
+library(orchaRd)
+```
+
+```{r}
+#read the data of Ckark's research and conceal the index column
+current_res <- read_csv("OA_activitydat_20190302_BIOL3207.csv",name_repair = "unique",show_col_types = FALSE) %>%
+                     select(-1)
+#show context 
+head(current_res,3)
+```
+
+```{r}
+# Change some variables to factor to check that the content is correct
+current_res <- current_res %>% mutate(loc = as.factor(loc),species = as.factor(species),
+                                         size = as.factor(size),treatment = as.factor(treatment))
+summary(current_res)
+#Check the distribution of NA in the dataset
+current_res %>% summarise(across(everything(), ~sum(is.na(.))))
+```
+
+No spelling errors and particularly unusual values were found, but some values were missing. Because our data is species dependent only, the lack of labels `animal ID` does not affect the availability of the data. So we only removed samples that were missing activities.
+
+```{r}
+#Check whether the number of NA values affects data availability
+table(current_res[!complete.cases(current_res$activity),] %>% select(species,loc))
+#Remove missing values
+current_res <- current_res[complete.cases(current_res$activity),]
+```
+
+
+6 samples of missing activities were removed, and the distribution of missing values was approximate to the distribution of samples, which we believe does not affect the statistical results.
+
+
+### 2. Generate statistics and merge files
+
+
+```{r}
+# the path of metadata file to append new infomation
+append_path = "ocean_meta_data.csv"
+existing_res <- read_csv(append_path,show_col_types = FALSE)
+# Get the amount of information we need
+glimpse(existing_res)
+```
+
+In order to add the data from the clark et al. paper to the metadata file, we needed to generate the appropriate statistics [mean,sd,N] and make the variable names consistent with each other. Therefore, we modify the names of treatment groups and change the names of individual variables, and then use `summarise()` and `pivot_longer()` to generate the statistics in the appropriate format. Finally, we read in clark's metadata and use `cbind()` to merge the experimental data with the metadata, and then use `select()` to align the data and write it to the metadata file.
+
+```{r}
+# Modify our treatment names to match the reference documentation
+levels(current_res$treatment)[levels(current_res$treatment)=="control"] <- "ctrl"
+levels(current_res$treatment)[levels(current_res$treatment)=="CO2"] <- "oa" 
+# calculate mean,SD and N of activity across each species and treatment 
+current_sta <- current_res %>% group_by(treatment,species) %>% summarise(mean = mean(activity),sd = sd(activity),n = n(),.groups = "drop") %>% 
+       pivot_wider(names_from = treatment,names_glue = "{treatment}.{.value}",values_from = c(mean,n,sd))
+```
+
+```{r}
+# the path of supplemental information about clark's research
+current_info <- read_csv("clark_paper_data.csv",show_col_types = FALSE)
+# using cbind() to extend supplemental information to each experimental group
+append_info <- cbind(tibble(current_info),current_sta)
+# colnames(append_info)
+#Fix problem with the order and partial naming of columns was found
+append_info <- append_info %>%rename(Species = species) %>% select(colnames(existing_res))
+```
+
+```{r}
+# write_lines("",file = append_path,append = TRUE)
+# write_csv(append_info, file = append_path, append = TRUE,col_names = FALSE)
+rm(list = ls())
+```
+
+### 3. Generate lnRR and sampling variance
+
+
+In the previous section we found a problem with data reading for metadata, some numeric variables are read in character format, and we want to check the non-numeric content of these variables and correct all the variables into suitable format.
+
+```{r}
+# Use *janitor* to fix column names for easy selection
+meta_data <- read_csv("ocean_meta_data.csv",show_col_types = FALSE) %>% janitor::clean_names()
+ini_size = nrow(meta_data)
+# Some numeric variables are read in chr type, cheack the non-numeric element
+unique(meta_data$pub_year_if[is.na(as.numeric(meta_data$pub_year_if))])
+unique(meta_data$x2017_if[is.na(as.numeric(meta_data$x2017_if))])
+```
+
+```{r}
+#Correct "-" to NA by forced type conversion. Correct some variables to factor type
+meta_data[meta_data == "-"] <- NA
+meta_data$cue_stimulus_type[is.na(meta_data$cue_stimulus_type)] <- "None"
+meta_data <- meta_data %>% mutate(pub_year_if = as.numeric(pub_year_if), x2017_if = as.numeric(x2017_if),
+                        effect_type = as.factor(effect_type), climate_fish_base = as.factor(climate_fish_base),
+                        env_cue_stimulus = as.factor(env_cue_stimulus), cue_stimulus_type = as.factor(cue_stimulus_type),
+                        species = as.factor(species))
+# Check the dataset again
+summary(meta_data)
+```
+
+The mean values of both groups were found to vary greatly between experiments. We made an attempt to convert them to Log response ratio (lnRR).
+
+```{r}
+meta_RR <- metafor::escalc(measure = "ROM", data = meta_data,m1i = oa_mean, m2i = ctrl_mean, 
+      sd1i = oa_sd, sd2i = ctrl_sd,n1i = oa_n, n2i = ctrl_n,var.names = c("lnRR", "VRR"))
+```
+
+The reason for getting NA is that $lnRR = ln\frac{\bar{X_1}}{\bar{X_2}}$, which cannot be calculated when the signs of the two response variables do not agree. We believe that the reason for the inconsistency in the sign of the two variables is that: part of the experiments screened by metadata is to measure the change from particular baseline for each treatment.
+
+```{r}
+# Most of NA has *change/rate* in behavioural_metric 
+meta_RR[!complete.cases(meta_RR$lnRR),] %>% select(study,behavioural_metric, ctrl_mean,oa_mean,lnRR)
+```
+
+We further counted the keyword occurrences of the study in which the NA experiments were found. The results showed that 104 of the 109 experiments had keywords with **change** and **rate**. We believe that such experiments do not show their effect sizes correctly by response ratio ($lnRR = ln\frac{\bar{X_1}-M}{\bar{X_2}-M} \neq \frac{\bar{X_1}}{\bar{X_2}}$). 
+
+```{r}
+# get all the study id of NA values
+doubtful_study <- unique(meta_RR[!complete.cases(meta_RR$lnRR),]$study)
+# number of experiments matched keyword in doubtful study
+num_match <- meta_data %>% filter(study %in% doubtful_study) %>% 
+         filter(grepl("change|Change|rate|Rate",behavioural_metric)) %>% nrow()
+# number of experiments of all study including NA value
+num_in_study <- meta_data %>% filter(study %in% doubtful_study) %>% nrow()
+print(paste("Num of rows matching keywords:",num_match,",Num of experiments:",num_in_study))
+```
+
+Therefore, we chose to **label** the experiments in these studies and all other experiments with the keyword **"change"** to detect the effect size bias between these and other experiments. Also, we removed those experiments where lnRR was NA.
+
+```{r}
+# Remove NA and mark  experiment with change or in "doubtful study"
+meta_RR <- meta_RR %>%  filter(!is.na(lnRR)) %>% 
+         mutate(measure_change = (study %in% doubtful_study)|grepl("change|Change",behavioural_metric) )
+```
+
+We test whether the obtained lnRR and its variance VRR have a appropriate distribution and size.
+
+```{r fig3.1, fig.cap="Distribution of lnRR and VRR before sample deletion"}
+# plot distribution of lnRR and VRR
+meta_RR %>% select(lnRR, VRR) %>% pivot_longer(cols = lnRR:VRR, names_to = "type", values_to = "value") %>% 
+      ggplot(aes(x = 1,y = value)) + geom_violin() + facet_wrap(~type, scale = "free")
+```
+
+The violin plot shows that the shape of lnRR is consistent with its normally distributed nature, but the values at both ends are large, and the extreme values of the response ratio reach the level of $e^{14}$, which is unimaginable but we cannot deny its plausibility. However, the shape of the VRR is extremely anomalous, and there are individual extremely large VRRs. we consider the results of experiments with too large variance relative to the effect values to be unreliable, and we therefore choose to remove these experiments.  
+To prevent bias, we used $ (sd(lnRR) > 2|lnRR|) \cap (sd(lnRR) > ln(1.5))$ as a criterion.
+
+```{r tags=c()}
+# filter unreliable(have unreliable sampling variance) experiments
+meta_RR %>% filter( (sqrt(VRR) > 2*abs(lnRR)) & (sqrt(VRR)> log(1.5) )) %>% select(study,ctrl_n:VRR)
+```
+
+```{r}
+# delete unreliable(have unreliable sampling variance) experiments
+meta_RR <- meta_RR %>% filter((sqrt(VRR) <= 2*abs(lnRR)) | (sqrt(VRR) <= log(1.5) ))
+print(paste("Initial number of experiment:",ini_size,",after screen:",nrow(meta_RR)))
+# Write the processed file to a csv file
+write_csv(meta_RR,"meta_RR.csv")
+```
+
+By screening, we removed 97 of the 824 experiments, which reduced the validity of our meta-analysis but was more conducive to obtaining reliable results.
+
+After removing some of the samples, we redraw the distributions of lnRR and VRR and show the experiments measuring the degree of change in another color.
+```{r fig3.2, fig.cap="Distribution of lnRR and VRR after sample deletion"}
+meta_RR %>% mutate(sd_lnRR = sqrt(VRR)) %>% select(lnRR, sd_lnRR, measure_change) %>% pivot_longer(cols = c(lnRR,sd_lnRR), names_to = "type", values_to = "value") %>% ggplot(aes(x = 1,y = value)) + geom_violin() +geom_jitter(alpha = 0.3,aes(color = measure_change))+ facet_wrap(~type, scale = "free")
+```
+As we can also see from the violin plot added measurement method, the experiments that measure the ratio of change generally have large effect values and sampling variance. And even after removing the experiments with low confidence, some of the effect values are still too large and the sampling variance still has some extreme values.
+
+we observe the difference in distribution density between the two experimental data measurement types further through density plots.
+```{r fig3.2, fig.cap="Density of lnRR and VRR between two measurement methods"}
+meta_RR %>% mutate(sd_lnRR = sqrt(VRR)) %>% select(lnRR, sd_lnRR, measure_change) %>% pivot_longer(cols = c(lnRR,sd_lnRR), names_to = "type", values_to = "value") %>% 
+      ggplot(aes(x = value)) + geom_density(aes(color = measure_change)) + facet_wrap(~type, scale = "free")
+```
+By plotting the density, we find that experiments measuring the rate of change do have higher absolute effect values and show greater sampling variance.
+
+## Part II: Meta Analysis of OA Research
+### Overall meta-analysis
+
+Before fitting the Multi-level meta-analytic model, we need to know the **composition of the experimental design** of the different studies in order to better design the random effect factors.
+```{r fig4.1, fig.cap="Composition of experimental designs across all studies"}
+# Read processed meta-analysis data
+meta_RR <- read_csv("meta_RR.csv", show_col_types = FALSE)
+# Fix a UTF-8 encoded label of species
+meta_RR$species[grepl("Hippocampus",meta_RR$species)] = "Hippocampus guttulatus"
+
+#draw fig4.1
+meta_RR %>% group_by(study) %>% 
+    summarise(n_climate = length(unique(climate_fish_base)), n_species = length(unique(species)), n_life_stage = length(unique(life_stage)),n_stimulus= length(unique(cue_stimulus_type))) %>% 
+    pivot_longer(cols = -1,names_to = "type", values_to = "value") %>% 
+    ggplot(aes(x = value)) + geom_histogram(binwidth = 1) + geom_text(aes(label=as.character(..count..)),stat="bin",binwidth=1,vjust=-0.5) + 
+    facet_wrap(~type,scale = "free",nrow = 1)
+```
+We counted the number of materials and study methods for each study. It can be found that almost every study studied only one zone (with only one exception) and one fish life stage.Therefore we assume that climate and life stage do not affect the variance composition of study. Instead, the internal variance of each study may be influenced by the method and the number of species it uses.
+
+At the same time, we also counted the life stages involved in each species, the types of stimuli they received, and how many studies were involved.
+```{r fig4.2, fig.cap="Distribution of the number of experiments and methods involved in species"}
+meta_RR %>% group_by(species) %>% 
+    summarise(n_study = length(unique(study)), n_life_stage = length(unique(life_stage)),n_stimulus= length(unique(cue_stimulus_type))) %>% 
+    pivot_longer(cols = -1,names_to = "type", values_to = "value") %>% 
+    ggplot(aes(x = value)) + geom_histogram(binwidth = 1) + geom_histogram(binwidth = 1) + geom_text(aes(label=as.character(..count..)),stat="bin",binwidth=1,vjust=-0.5) + 
+    facet_wrap(~type,scale = "free")
+```
+We found that each species was mostly studied at only one of its growth stages. Most species appeared in only one study, with little overlap of species between studies. And nearly half of the species in all experiments were studied under multiple study instruments (stimuli).
+
+Combining () and (), we found that most of the published studies mostly used only one growth stage of a species as a sample, most of the studies using multiple species involved only one zone, and only one to two study instruments (stimuli) were used in each study. Therefore, we can assume that most of the factors affecting the within-study variance are differences in the stimuli used and the number of studies per study。
+
+In addition, we can make Q-Q plots to test whether the mean distribution of lnRR in each factor conforms to a normal distribution, thereby confirming whether these effects lead to non-random differences.
+First, we make Q-Q plots for different effect_types to better show the deviation of the overall distribution of lnRR from the normal distribution.
+```{r fig4.4, fig.cap="Q-Q diagram of lnRR of three different study effect types"}
+meta_RR %>% ggplot(aes(sample = lnRR)) + stat_qq() + stat_qq_line() + facet_wrap(~effect_type,scale = "free")
+```
+As seen in Fig 4.4, each reported response type deviates significantly from the normal distribution and shows strong thick tails, implying the presence of many extreme values of lnRR. Also, we can see that the Q-Q plot fits to lnRR are centered at 0, which implies that the general effect values are distributed approximately symmetrically at both ends of 0. This is because each study has different values measured by the study instruments and the effect values have different meanings for the species. At the same time, however, the graph also implies that we can quantify absolute effect sizes by counting the absolute value of lnRR.
+
+```{r fig4.4, fig.cap=""}
+para_distribution <- function(data,paras){
+   plot_data <- tibble()
+   for (i in paras){
+      c <- ensym(i)
+      para_data <- data %>% group_by({{c}}) %>% summarise(mean_lnRR = mean(lnRR)) %>% 
+          select(mean_lnRR) %>% mutate(parameter = as.character(i))
+      plot_data <- rbind(para_data,plot_data)
+   }
+   plot_data %>% ggplot(aes(sample = mean_lnRR)) + stat_qq() + stat_qq_line() + facet_wrap(~parameter,scale = "free") + ylab("mean of abslute lnRR")
+}
+
+para_distribution(meta_RR,c("species","study","climate_fish_base","cue_stimulus_type","year_online","authors"))
+
+```
+At the same time, the qq plots for different experimental factors show that, except for the effect size of the stimulus type, which conforms to a normal distribution centered at 0, the results of other experimental factors deviate significantly from the normal distribution.
+
+We therefore consider that the main experiment random effect belongs to the **study**, while the **stimulus type** as different experimental methods in a single **study** leads to different between-group variance, while other variance is contributed by differences in conditions between experiments(contain the use of **species**) and the experiment itself. From this we build a meta-analytic model.(Because the ecological niche in which a species is located may determine the type of stimulus it receives)
+
+```{r}
+meta_RR <- meta_RR %>% group_by(study) %>% mutate(exp_id = 1:n()) %>% ungroup()
+```
+
+```{r}
+# Multi-level meta-analytic model
+MLMA <- metafor::rma.mv(lnRR ~ 1, V = VRR, method = "REML", 
+            random = list( ~1|study/cue_stimulus_type/species/exp_id),
+            dfs = "contain", test = "t", data = meta_RR)
+```
+
+```{r}
+summary(MLMA)
+```
+
+Because
+1. we do not set the independent variable corresponding to lnRR but only measure the mean value  
+2. the difference between the extreme values of lnRR is too large  
+3. the difference of using species、experimental methods and experimental variable between different experiments is large  
+4. No consistent measurements across experiments  
+
+Our results are not significant with p-value `r round(as.numeric(MLMA$pval),3)`. Although our 95% confidence interval contains 0, the results obtained are still somewhat informative, with the average lnRR being `r round(as.numeric(MLMA$b),3)`.
+
+```{r}
+p_MLMA <- predict(MLMA, transf = exp)
+p_MLMA
+```
+
+We convert lnRR back to Respose ratio (RR), and we expect a 95% chance of a true RR falling between `r round(p_MLMA$ci.lb,3)` - `r round(p_MLMA$ci.lb,3)`.
+
+Measures of heterogeneity in effect size estimates across studies $I^2$:
+```{r}
+## Calculate I2
+library(orchaRd)
+i2_vals <- orchaRd::i2_ml(MLMA)
+i2 <- tibble(type = firstup(gsub("I2_", "", names(i2_vals))), I2 = round(i2_vals,4))
+flextable(i2) %>%
+   align(part = "header", align = "center") %>%
+   compose(part = "header", j = 1, value = as_paragraph(as_b("Type"))) %>%
+   compose(part = "header", j = 2, value = as_paragraph(as_b("I"), as_b(as_sup("2")), as_b("(%)")))
+```
+Surprisingly, the random effect explains 100% of the variance, while the sampling variance is too small to show its proportion because it is relatively too small. This suggests that our data are extremely heterogeneous for the same reasons as above, both due to high variability in experimental design and measurements between experiments.It can be seen that the variance between studies was decomposed to account for approximately 0. While the stimulus type explained `r as.numeric(i2[i2$type == "Study/cue_stimulus_type","I2"])`% of the variance and species explained `r as.numeric(i2[[i2$type == "Study/cue_stimulus_type/species","I2"]])`%of the variance.
+
+
+We also tried the same meta-analysis using the absolute value of lnRR, although this would lead to random effects not meeting the assumption of a normal distribution and the t-test would be inaccurate.
+```{r}
+# Multi-level meta-analytic model
+meta_RR <- meta_RR %>% mutate(abs_lnRR = abs(lnRR))
+MLMA2 <- metafor::rma.mv(abs_lnRR ~ 1, V = VRR, method = "REML",
+           random = list(~1|study/cue_stimulus_type/species/exp_id),
+            dfs = "contain", test = "t", data = meta_RR)
+MLMA2
+```
+Fitting to the absolute value of lnRR yielded a very high estimate mean value of `r round(as.numeric(MLMA2$b),3)`, with a very small p-value of `r round(as.numeric(MLMA2$pval),3)`. This shows that the absolute effect size of our study is high. That mean the response ratio beetween two treatment groups across experiments is `r round(exp(as.numeric(MLMA2$b)),3)`.
+
+Measures of heterogeneity in effect size estimates across studies $I^2$ for absolute lnRR:
+```{r}
+## Calculate I2
+library(orchaRd)
+i2_vals <- orchaRd::i2_ml(MLMA2)
+i2 <- tibble(type = firstup(gsub("I2_", "", names(i2_vals))), I2 = round(i2_vals,4))
+flextable(i2) %>%
+   align(part = "header", align = "center") %>%
+   compose(part = "header", j = 1, value = as_paragraph(as_b("Type"))) %>%
+   compose(part = "header", j = 2, value = as_paragraph(as_b("I"), as_b(as_sup("2")), as_b("(%)")))
+```
+Using absolute values does not explain the variance any better. Because of the large variation between our different experiments, it still leads to 100% heterogeneity, but the variance explained by study comes back to a more reasonable level.
+
+
+### Analysis of biological and methodological factor
+
+```{r}
+meta_RR_climate <- meta_RR %>% filter(climate_fish_base != "Not provided")
+MLMR1 <- metafor::rma.mv(lnRR ~ climate_fish_base-1, V = VRR, method = "REML", 
+                         random = list(~1|species, ~1|study/exp_id),
+                         dfs = "contain", test = "t", data = meta_RR_climate)
+MLMR1
+```
+
+
+```{r}
+orchaRd::orchard_plot(MLMR1, mod = "climate_fish_base", group = "study", data = meta_RR_climate,
+    xlab = "log(Response ratio) (lnRR)", angle = 45)
+rm(meta_RR_climate)
+```
+
+```{r}
+meta_RR_stage <- meta_RR %>% filter(life_stage != "Not provided")
+MLMR2 <- metafor::rma.mv(lnRR ~ life_stage -1, V = VRR, method = "REML", 
+                         random = list(~1|species, ~1|study/exp_id),
+                         dfs = "contain", test = "t", data = meta_RR_stage)
+MLMR2
+```
+
+```{r}
+orchaRd::orchard_plot(MLMR2, mod = "life_stage", group = "study", data = meta_RR_stage,
+    xlab = "log(Response ratio) (lnRR)", angle = 45)
+rm(meta_RR_stage)
+```
+
+
+```{r}
+meta_RR_cs <- meta_RR %>% filter(life_stage != "Not provided" & climate_fish_base != "Not provided")
+MLMR3 <- metafor::rma.mv(abs_lnRR ~ climate_fish_base + life_stage -1, V = VRR, method = "REML", 
+                         random = list(~1|species, ~1|study/exp_id),
+                         dfs = "contain", test = "t", data = meta_RR_cs)
+MLMR3
+```
+
+
+```{r}
+heat_data <- meta_RR_cs %>% group_by(climate_fish_base, life_stage) %>% 
+    summarise(mean_abs_lnRR = mean(abs_lnRR), n_sam = n(), .groups = "drop") %>% filter(n_sam > 10) %>% 
+    mutate(heat_label = paste("n =",n_sam,"\n",round(mean_abs_lnRR,3)))
+heat_data %>% ggplot(aes(x= climate_fish_base ,y= life_stage,fill= mean_abs_lnRR, label = heat_label)) + geom_tile() + geom_text() + scale_fill_gradient2(low = "white", high = "red")
+heat_data %>% ggplot(aes(x = mean_abs_lnRR, y = n_sam)) + geom_smooth(method = "lm") + geom_point()
+```
+
+
+
+```{r}
+
+```
+
+
+
+
+
+
+### Analysis of publication practices factor
+
+
+```{r}
+meta_RR <- meta_RR %>% mutate(precision = 1/sqrt(VRR)) %>%  mutate(
+    exact = case_when(
+        precision < 5 ~ "low",
+        precision >= 5 & precision < 30 ~ "normal",
+        precision >= 30 & precision < 500 ~ "exact",
+        precision >= 500 ~ "extra_exact",
+  )) %>% mutate(exact = fct_relevel(as.factor(exact),"low","normal","exact"))
+meta_RR %>% ggplot(aes(y = precision, x = lnRR)) + geom_point() + facet_wrap(~exact, scale = "free")
+```
+
+
+```{r}
+meta_RR %>% count(across(exact)) %>% mutate(ratio = round(n/nrow(meta_RR),3))
+```
+
+
+```{r}
+metafor::funnel(x = meta_RR$lnRR, vi = meta_RR$VRR, yaxis = "seinv",
+    digits = 2, level = c(0.1, 0.05, 0.01), shade = c("#e9fbff", "#dcf0ef", "#bac8cc"),ylim = c(1,30),xlim = c(-4,4),
+    las = 1, xlab = "Correlation Coefficient (r)", atransf = exp, legend = TRUE, pch =20)
+```
+
+```{r}
+library(ggpmisc)
+anti_funnel <- function(data, diff_color){
+    ggplot(data, aes(y = abs_lnRR, x = VRR, color = {{diff_color}})) + geom_point() + geom_smooth(method = lm, formula = y~x) +
+    labs(y = "Fisher's Z-transformed Correlation Coefficient (Zr)", x = "Sampling Variance of Zr") +
+    stat_poly_eq(use_label(c("eq","R2", "R2.CI", "P"), sep = "*\"; \"*"),
+    formula = y~x , label.x = 8, parse = TRUE) +
+    theme_classic()
+}
+meta_RR %>% filter(VRR < quantile(meta_RR$VRR,0.95)) %>% anti_funnel(NULL)
+```
+1
+
+```{r}
+meta_RR %>% filter(VRR < quantile(meta_RR$VRR,0.95)) %>% anti_funnel(measure_change)
+```
+
+```{r}
+metareg_v <- metafor::rma.mv(lnRR ~ inverse_VRR, V = VRR, random = list(~1 | study/exp_id),
+    test = "t", dfs = "contain", data = meta_RR %>% mutate(inverse_VRR = 1/VRR) %>% filter(inverse_VRR <= 1000))
+metareg_v
+```
+
+```{r}
+r2 <- orchaRd::r2_ml(metareg_v)
+r2
+```
+
+```{r}
+ggplot(meta_RR, aes(y = lnRR, x = year_online, size = 1/sqrt(VRR))) + geom_point(alpha = 0.3) +
+    geom_smooth(method = lm, col = "red", show.legend = FALSE) + labs(x = "Publication Year",
+    y = "Fisher's Z-transformed Correlation Coefficient (Zr)", size = "Precision (1/SE)") +
+    geom_hline(yintercept = 0,col = "blue", linetype = 2)+
+    theme_light()
+```
+
+```{r}
+ggplot(meta_RR, aes(y = abs_lnRR, x = year_online, size = 1/sqrt(VRR))) + geom_boxplot(aes(group = year_online)) +
+    geom_smooth(method = lm, col = "red", show.legend = FALSE) + labs(x = "Publication Year",
+    y = "Fisher's Z-transformed Correlation Coefficient (Zr)", size = "Precision (1/SE)") +
+    geom_hline(yintercept = 0,col = "blue", linetype = 2)+ coord_cartesian(ylim = c(0, 8))+
+    stat_summary(fun="mean", geom="point", shape=20, size=2.5, color="blue", fill="blue",alpha=0.7) +
+    theme_classic()
+```
+
+```{r}
+meta_RR <- meta_RR %>% mutate(year_c = year_online - mean(year_online))
+metareg_time <- metafor::rma.mv(abs_lnRR ~ year_c, V = VRR, random = list(~1 | study/exp_id),
+    test = "t", dfs = "contain", data = meta_RR)
+metareg_time
+```
+
+```{r}
+study_info <- meta_RR %>% group_by(study) %>% mutate(mean_VRR = mean(VRR), species_usage = length(unique(species)), method_usage = length(unique(cue_stimulus_type))) %>% ungroup() %>%  select(study,year_online, pub_year_if,mean_VRR, effect_type, average_n, species_usage, method_usage) %>% distinct()
+study_info <- study_info %>% mutate(if_range = c("0-20%","20-40%","40-60%","60-80%","80-100%")[findInterval(study_info$pub_year_if,c(0,quantile(study_info$pub_year_if,0.2,T),quantile(meta_RR$pub_year_if,0.4,T),quantile(study_info$pub_year_if,0.6,T),quantile(study_info$pub_year_if,0.8,T),100),all.inside = T)] )
+
+study_info %>% drop_na() %>% 
+ggplot(aes(x= if_range,fill=effect_type)) + geom_bar(aes(color=effect_type), position = "fill")+scale_y_continuous(labels = scales::percent)
+```
+
+```{r }
+study1 <- study_info %>% drop_na() %>% mutate(precision = 1/sqrt(mean_VRR)) %>% pivot_longer(c(average_n,precision),names_to = "trait", values_to = "value") %>% 
+ggplot(aes(y= if_range,x = value)) + geom_boxplot() + facet_wrap(~trait,scale = "free",nrow = 2)
+
+study2 <-  study_info %>% drop_na() %>% pivot_longer(c(species_usage,method_usage),names_to = "trait", values_to = "value") %>% ggplot(aes(y= if_range,x = value)) + geom_count() + facet_wrap(~trait,scale = "free",ncol = 2)
+
+study1/study2 + plot_layout(height = c(2, 1))
+
+```
+
+
+
+```{r}
+metareg_publish_abs <- metafor::rma.mv(abs_lnRR ~ year_c + precision, V = VRR, random = list(~1 | study/exp_id),
+    test = "t", dfs = "contain", data = meta_RR %>% filter(precision < quantile(meta_RR$precision,0.99)))
+metareg_publish_abs
+```
+
+
+
+
+
+### 总结
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+lag.plot()
+```
+
+```{r}
+
+```
