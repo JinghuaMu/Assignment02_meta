@@ -389,9 +389,9 @@ R2 <- as.data.frame(orchaRd::r2_ml(MLMR1))
 R2 <- cbind(R2,as.data.frame(orchaRd::r2_ml(MLMR2)))
 R2 <- cbind(R2,as.data.frame(orchaRd::r2_ml(MLMR3)))
 colnames(R2) <- c("climate","life stage","climate + life stage")
-R2
+knitr::kable(R2,caption = "Variance explained by different publication bias meta-analysis models")
 ```
-As can be seen from the table Table \@ref(tab:table3), using two variables at the same time explains the variance between experiments relatively better. However, due to the high variation between experiments, the fixed factor still only explains the variance of `r round(R2["R2_marginal", "climate + life stage"],3)`.  
+As can be seen from the table \@ref(tab:table3), using two variables at the same time explains the variance between experiments relatively better. However, due to the high variation between experiments, the fixed factor still only explains the variance of `r round(R2["R2_marginal", "climate + life stage"],3)`.  
 
 Because we believe that using the absolute values of the effect sizes better reflects the magnitude of the differences and the "value" of the study. Therefore, we used the average absolute value of lnRR and the sample size of the study to make a heat map of these two fixed factors. Also, we used a linear fit to see if the study area with stronger effects was more popular.  
 ```{r fig11, fig.cap="Heatmap of mean(abs(lnRR)) to two fixed effects "}
@@ -432,11 +432,11 @@ meta_RR %>% ggplot(aes(y = precision, x = lnRR)) + geom_point() + facet_wrap(~ex
 It can be seen from Fig \@ref(fig:fig14) that there are some experiments with extremely high precision in ocean acidification research, which means that the sampling variance of these experiments is extremely small, and these studies have strong effect sizes. In other groups, we found that the distribution of lnRR was more discrete, but its variation range gradually decreased with the increase of precision.  
 
 We calculate the proportion of the sample size in each group to the population.  
-```{r table4, echo=TRUE, eval=TRUE, tab.cap="不同精度等级的样本数量与比例"}
+```{r table4, echo=TRUE, eval=TRUE, tab.cap="The number and proportion of samples with different precision levels"}
 precision_num <- meta_RR %>% count(across(exact)) %>% mutate(ratio = round(n/nrow(meta_RR),3))
-precision_num
+knitr::kable(precision_num,caption = "The number and proportion of samples with different precision levels")
 ```
-From Table Table \@ref(tab:table4), we can find that the number of samples in the extra_exact grouping is only `r precision_num[4,2]`. And the number of fact and extra_exact groupings together only accounts for `r sum(precision_num[3,3],precision_num[4,3])`% of the total number of samples, so removing these samples does not affect our observation of the overall.  
+From Table \@ref(tab:table4), we can find that the number of samples in the extra_exact grouping is only `r precision_num[4,2]`. And the number of fact and extra_exact groupings together only accounts for `r sum(precision_num[3,3],precision_num[4,3])`% of the total number of samples, so removing these samples does not affect our observation of the overall.  
 
 Publication bias of study was examined by plotting funnel plots.  
 ```{r fig15, fig.cap="Funnel plot of lnRR and study precision"}
@@ -467,7 +467,7 @@ meta_RR %>% filter(VRR < quantile(meta_RR$VRR,0.95)) %>% anti_funnel(measure_cha
 ```
 According to Fig \@ref(fig:fig17), we obtain very interesting results. The study measuring the change quantity has a higher intercept of the absolute value of lnRR, while the study measuring the non-change quantity has a smaller intercept of the absolute value of lnRR, yet has a higher slope. This is partly because the measurement of change itself leads to larger effect sizes, and partly because the measurement of such effect sizes leads to larger sampling variance, making the change in effect sizes less pronounced.
 
-Meanwhile, we perform a meta-analysis of inverse VRR versus lnRR. To filter too large values, we choose to refer to table Table \@ref(tab:table4) to take the 95% quantile.
+Meanwhile, we perform a meta-analysis of inverse VRR versus lnRR. To filter too large values, we choose to refer to table \@ref(tab:table4) to take the 95% quantile.
 ```{r}
 metareg_v <- metafor::rma.mv(lnRR ~ inverse_VRR, V = VRR, random = list(~1 | study/exp_id),
     test = "t", dfs = "contain", data = meta_RR %>% mutate(inverse_VRR = 1/VRR) %>% filter(inverse_VRR <= quantile(inverse_VRR, 0.95)))
@@ -505,7 +505,7 @@ metareg_time
 ```
 The results show a clear effect of year change on the effect size with a slope of `r round(metareg_time$beta[2],3)` and a 95% confidence interval of `r round(metareg_time $ci.lb[2],3)` to `r round( metareg_time $ci.ub[2],3)`. This means that the mean of the effect size decreases on average by `r round(metareg_time$beta[2],3)` per year. Also the average effect value after removing the year effect is still 0.1447 greater than 0.
 
-Finally, we combined time and study precision simultaneously as fixed effects for meta-analysis.To filter too large values, we choose to refer to table Table \@ref(tab:table4) to take the 99% quantile.
+Finally, we combined time and study precision simultaneously as fixed effects for meta-analysis.To filter too large values, we choose to refer to table \@ref(tab:table4) to take the 99% quantile.
 ```{r}
 metareg_publish <- metafor::rma.mv(lnRR ~ year_c + precision, V = VRR, random = list(~1 | study/exp_id),
     test = "t", dfs = "contain", data = meta_RR %>% filter(precision < quantile(meta_RR$precision,0.99)))
@@ -515,14 +515,14 @@ The results show that both fixed effects are highly significant. where the slope
 We believe that the decay in effect values over time is due to initial studies that exaggerated the effect of the study, leading to an academic consensus that ocean acidification has a strong effect on species, while a growing number of subsequent experiments have gradually refuted the previously exaggerated effect sizes.
 
 
-```{r table6.2, echo=TRUE, eval=TRUE, tab.cap="不同出版偏差元分析模型解释的方差"}
+```{r table5, echo=TRUE, eval=TRUE, tab.cap="Variance explained by different publication bias meta-analysis models"}
 R22 <- as.data.frame(orchaRd::r2_ml(metareg_v))
 R22 <- cbind(R22,as.data.frame(orchaRd::r2_ml(metareg_time)))
 R22 <- cbind(R22,as.data.frame(orchaRd::r2_ml(metareg_publish)))
 colnames(R22) <- c("precision","year","year+precision")
-R22
+knitr::kable(R22, caption = "Variance explained by different publication bias meta-analysis models")
 ```
-As can be seen from the table Table \@ref(tab:table6.2), using both time and precision better explains the variance between experiments. The two fixed effects explained `r 100*R22[1,3]`% of the variance, and were more powerful than biological effects.
+As can be seen from the table \@ref(tab:table5), using both time and precision better explains the variance between experiments. The two fixed effects explained `r 100*R22[1,3]`% of the variance, and were more powerful than biological effects.
 
 Lastly, we investigated whether the impact factor influenced the publication of the study.
 ```{r}
@@ -564,7 +564,7 @@ The results of the fit show the mean of the absolute values of the effect sizes 
 ### 7. Conclusion
 
 1. From Fig \@ref(fig:fig2), Fig \@ref(fig:fig3) and Fig \@ref(fig:fig17), it can be seen that the different data measurement methods largely affect the response values and sampling variance of the experiments. If two different data measurement methods are used in the data set for calculating the response ratio, the final results will obviously deviate from the true values.  
-2. From Fig \@ref(fig:fig9), Fig \@ref(fig:fig10) and Table Table \@ref(tab:table3), we found that both the climate of the species and the life stage of the species affect the mean size and direction of the effect values. Combined with Fig \@ref(fig:fig4) and Fig \@ref(fig:fig5), we found that almost all studies involved only one climate and one life stage, and this singularity of experimental materials and experimental design led to more biased results.  
+2. From Fig \@ref(fig:fig9), Fig \@ref(fig:fig10) and Table \@ref(tab:table3), we found that both the climate of the species and the life stage of the species affect the mean size and direction of the effect values. Combined with Fig \@ref(fig:fig4) and Fig \@ref(fig:fig5), we found that almost all studies involved only one climate and one life stage, and this singularity of experimental materials and experimental design led to more biased results.  
 3. from Fig \@ref(fig:fig11) and Fig \@ref(fig:fig12) we find that the number of studies tends to be higher in study areas with larger mean absolute effect values, which confirms the existence of study area preference in ocean acidification studies.  
 4. As seen in Fig \@ref(fig:fig15) and Fig \@ref(fig:fig16), experiments with lower precision (i.e., large sampling variance) tend to have larger effect values. This reflects the file-drawer situation of the study, i.e., experiments with smaller effect values and lower precision tend not to be published. In the case of low precision, only "compelling" experiments are published.  
 5. As seen in Fig \@ref(fig:fig18) and Fig \@ref(fig:fig19), the effect sizes show a decreasing trend from year to year, and this trend is more obvious in the absolute values of effect sizes. Combined with the meta-analysis of Clement et. al. (2022), it can be concluded that the effect sizes found are decreasing due to the study of cold-water and adult fish species, while the previous experiments used more warm-water species and juveniles, which are more sensitive to CO2 changes.  
