@@ -11,7 +11,7 @@ output:
     toc_float: yes
 ---
 
-!(Github repository location)[<https://github.com/henflower/Assignment02_meta>]
+[Github repository location](<https://github.com/henflower/Assignment02_meta>)
 
 ## Part I: Data Processing and Analysis
 
@@ -435,7 +435,7 @@ Fig \@ref(fig:fig12) reveals that there is a strong positive correlation between
 Finally, we explore whether the sample size has an effect on the size of the effect size, that is, the relationship between sample size and $|lnRR|$.
 
 ```{r fig13, fig.cap="The relationship between sample size and abs(lnRR)"}
-meta_RR %>% filter(average_n < quantile(meta_RR$average_n,0.99)) %>% ggplot(aes(x = average_n, y = abs_lnRR, color = VRR)) + geom_point() + geom_smooth(method = lm) + scale_color_gradientn(colours = topo.colors(10)) + ggtitle("The relationship between sample size and abs(lnRR)") 
+meta_RR %>% filter(average_n < quantile(meta_RR$average_n,0.99)) %>% ggplot(aes(x = average_n, y = abs_lnRR, color = VRR)) + geom_point() + geom_smooth(method = lm) + scale_color_gradientn(colours = topo.colors(10)) + ggtitle("The relationship between sample size and abs(lnRR)") + ylab("abs(log(Response ratio))") + xlab("average sample size of study")
 ```
 
 From Fig \@ref(fig:fig13), it can be clearly seen that regions with low sample sizes tend to have higher absolute values of effect sizes, and also generally have larger sampling variances. Therefore, it can be seen that a **low sample size will lead to a greater possibility of bias** in the results of the experiment, and the reliability is often low.
@@ -454,7 +454,7 @@ meta_RR <- meta_RR %>% mutate(precision = 1/sqrt(VRR)) %>%  mutate(
         precision >= 500 ~ "extra_exact",
   )) %>% mutate(exact = fct_relevel(as.factor(exact),"low","normal","exact"))
 meta_RR %>% ggplot(aes(y = precision, x = lnRR)) + geom_point() + facet_wrap(~exact, scale = "free") + plot_annotation(
-  title = "Relationship between lnRR and precision under different precision groups")
+  title = "Relationship between lnRR and precision under different precision groups") + xlab("log(Response ratio) (lnRR)") + ylab("precision(1/sqrt(lnRR))")
 ```
 
 It can be seen from Fig \@ref(fig:fig14) that there are **some experiments with extremely high precision** in ocean acidification research, which means that the sampling variance of these experiments is extremely small, and these studies have strong effect sizes. In other groups, we found that the distribution of $lnRR$ was more discrete, but its variation range gradually decreased with the increase of precision.
@@ -473,7 +473,7 @@ Publication bias of study was examined by plotting funnel plots.
 ```{r fig15, fig.cap="Funnel plot of lnRR and study precision"}
 metafor::funnel(x = meta_RR$lnRR, vi = meta_RR$VRR, yaxis = "seinv",
     digits = 2, level = c(0.1, 0.05, 0.01), shade = c("#e9fbff", "#dcf0ef", "#bac8cc"),ylim = c(0.01,30),xlim = c(-3,3),
-    las = 1, xlab = "Correlation Coefficient (r)", atransf = exp, legend = TRUE, pch =20)
+    las = 1, xlab = "Response ratio (RR)", atransf = exp, legend = TRUE, pch =20)
 ```
 
 We found no publication bias in the areas where the studies had higher precision. However, we found gaps at the bottom of the funnel plot Fig \@ref(fig:fig15), implying that **studies with lower precision tended to be biased toward publishing results with more pronounced effects**, that is, results with larger absolute values of effect sizes.
@@ -518,7 +518,7 @@ Next we look at the time-lag bias in ocean acidification studies.
 ```{r fig18, fig.cap="Variation of effect size over time"}
 ggplot(meta_RR, aes(y = lnRR, x = year_online, size = 1/sqrt(VRR))) + geom_point(alpha = 0.3) +
     geom_smooth(method = lm, col = "red", show.legend = FALSE) + labs(x = "Publication Year",
-    y = "Fisher's Z-transformed Correlation Coefficient (Zr)", size = "Precision (1/SE)") +
+    y = "log(Response ratio) (lnRR)", size = "Precision (1/SE)") +
     geom_hline(yintercept = 0,col = "blue", linetype = 2)+
     theme_light() + ggtitle("Variation of effect size over time")
 ```
@@ -530,7 +530,7 @@ We can use the absolute value of the effect size to better observe the convergen
 ```{r fig19, fig.cap="Variation of absolute effect size over time"}
 ggplot(meta_RR, aes(y = abs_lnRR, x = year_online, size = 1/sqrt(VRR))) + geom_boxplot(aes(group = year_online)) +
     geom_smooth(method = lm, col = "red", show.legend = FALSE) + labs(x = "Publication Year",
-    y = "Fisher's Z-transformed Correlation Coefficient (Zr)", size = "Precision (1/SE)") +
+    y = "abs(log(Response ratio))", size = "Precision (1/SE)") +
     geom_hline(yintercept = 0,col = "blue", linetype = 2)+ coord_cartesian(ylim = c(0, 8))+
     stat_summary(fun="mean", geom="point", shape=20, size=2.5, color="blue", fill="blue",alpha=0.7) +
     theme_classic() + ggtitle("Variation of absolute effect size over time")
@@ -580,7 +580,7 @@ First, we observed whether effect_type affected the impact factor of the study.
 
 ```{r fig20, fig.cap="Distribution of effect types studied on different IF intervals"}
 study_info %>% drop_na() %>% 
-ggplot(aes(x= if_range,fill=effect_type)) + geom_bar(aes(color=effect_type), position = "fill")+scale_y_continuous(labels = scales::percent) + ggtitle("Distribution of effect types studied on different IF intervals")
+ggplot(aes(x= if_range,fill=effect_type)) + geom_bar(aes(color=effect_type), position = "fill")+scale_y_continuous(labels = scales::percent) + ggtitle("Distribution of effect types studied on different IF intervals") + xlab("IF quantile")
 ```
 
 From Fig \@ref(fig:fig20) it can be seen that the majority of studies with no effect were published in journals with low impact factor quartiles, while the majority of studies with strong effects were published in journals with high impact factor quartiles, which seems to **indicate the acceptance bias of the journals**.
@@ -588,7 +588,7 @@ From Fig \@ref(fig:fig20) it can be seen that the majority of studies with no ef
 ```{r fig21, fig.cap="Distribution of other research characteristics in different IF intervals"}
 study_info %>% drop_na() %>% mutate(precision = 1/sqrt(mean_VRR)) %>% pivot_longer(c(mean_lnRR,average_n,precision),names_to = "trait", values_to = "value") %>% 
 ggplot(aes(y= if_range,x = value)) + geom_boxplot() + facet_wrap(~trait,scale = "free",nrow = 3) +  plot_annotation(
-  title = "Distribution of other research characteristics in different IF intervals")
+  title = "Distribution of other research characteristics in different IF intervals") + ylab("IF quantile")
 ```
 
 In the analysis of Fig \@ref(fig:fig21) impact factors in other study characteristics, we found that the precision of the studies did not change significantly as the quantile of impact factors rose, while the range of variation in effect size increased overall and the sample size of the studies increased. This seems to imply that **articles with high impact factors do not require as much precision as they do sample size**.
@@ -597,7 +597,7 @@ Finally, we examine whether the number of species and methods used in published 
 
 ```{r fig22, fig.cap="Count of method and species usage in different IF interval"}
 study_info %>% drop_na() %>% pivot_longer(c(species_usage,method_usage),names_to = "trait", values_to = "value") %>% ggplot(aes(y= if_range,x = value)) + geom_count() + facet_wrap(~trait,scale = "free",ncol = 2) +  plot_annotation(
-  title = "Count of method and species usage in different IF interval")
+  title = "Count of method and species usage in different IF interval") + ylab("IF quantile")
 ```
 
 Fig \@ref(fig:fig22) shows that the **number of methods used in the study did not increase with increasing impact factors**, while the number of species used increased overall.
